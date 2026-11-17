@@ -1,622 +1,640 @@
 /**
- * TradingService
+ * @catalyst-team/poly-sdk
  *
- * Trading service using official @polymarket/clob-client.
- *
- * Provides:
- * - Order creation (limit, market)
- * - Order management (cancel, query)
- * - Rewards tracking
- * - Balance management
- *
- * Note: Market data methods have been moved to MarketService.
+ * Unified SDK for Polymarket APIs
+ * - Data API (positions, activity, trades, leaderboard)
+ * - Gamma API (markets, events, trending)
+ * - CLOB API (orderbook, market info, trading)
+ * - Services (WalletService, MarketService)
  */
 
-import {
-  ClobClient,
-  Side as ClobSide,
-  OrderType as ClobOrderType,
-  Chain,
-  type OpenOrder,
-  type Trade as ClobTrade,
-  type TickSize,
-} from '@polymarket/clob-client';
+// Core infrastructure
+export { RateLimiter, ApiType } from './core/rate-limiter.js';
+export { Cache, CACHE_TTL } from './core/cache.js';
+export { PolymarketError, ErrorCode, withRetry } from './core/errors.js';
+export * from './core/types.js';
 
-import { Wallet } from 'ethers';
-import { RateLimiter, ApiType } from '../core/rate-limiter.js';
-import type { UnifiedCache } from '../core/unified-cache.js';
-import { CACHE_TTL } from '../core/unified-cache.js';
-import { PolymarketError, ErrorCode } from '../core/errors.js';
-import type { Side, OrderType } from '../core/types.js';
+// Central risk gate
+export { RiskManager } from './services/risk-manager.js';
+export type {
+  RiskConfig,
+  RiskDecision,
+  RiskSnapshot,
+  RiskTradeContext,
+} from './services/risk-manager.js';
 
-// Chain IDs
-export const POLYGON_MAINNET = 137;
-export const POLYGON_AMOY = 80002;
+// Cache integration (new)
+export type { UnifiedCache } from './core/unified-cache.js';
+export { createUnifiedCache } from './core/unified-cache.js';
 
-// CLOB Host
-const CLOB_HOST = 'https://clob.polymarket.com';
+// API Clients
+export { DataApiClient } from './clients/data-api.js';
+export type {
+  Position,
+  Activity,
+  Trade,
+  LeaderboardEntry,
+  LeaderboardResult,
+  // Leaderboard parameters (supports time period filtering)
+  LeaderboardParams,
+  LeaderboardTimePeriod,
+  LeaderboardOrderBy,
+  LeaderboardCategory,
+  // P0/P1/P2 Gap Analysis types
+  ActivityParams,
+  PositionsParams,
+  TradesParams,
+  HoldersParams,
+  AccountValue,
+  MarketHolder,
+  // Closed positions
+  ClosedPosition,
+  ClosedPositionsParams,
+} from './clients/data-api.js';
 
-// ============================================================================
-// Polymarket Order Minimums
-// ============================================================================
-// These are enforced by Polymarket's CLOB API. Orders below these limits will
-// be rejected with errors like:
-// - "invalid amount for a marketable BUY order ($X), min size: $1"
-// - "Size (X) lower than the minimum: 5"
-//
-// Strategies should ensure orders meet these requirements BEFORE sending.
-// ============================================================================
+export { GammaApiClient } from './clients/gamma-api.js';
+export type {
+  GammaMarket,
+  GammaEvent,
+  MarketSearchParams,
+} from './clients/gamma-api.js';
 
-/** Minimum order value in USDC (price * size >= MIN_ORDER_VALUE) */
-export const MIN_ORDER_VALUE_USDC = 1;
+// ClobApiClient has been removed - use TradingService instead
+// TradingService provides getMarket(), getProcessedOrderbook(), etc.
 
-/** Minimum order size in shares */
-export const MIN_ORDER_SIZE_SHARES = 5;
+// Subgraph Client (on-chain data via Goldsky)
+export { SubgraphClient, SUBGRAPH_ENDPOINTS } from './clients/subgraph.js';
+export type {
+  SubgraphName,
+  SubgraphQueryParams,
+  // Positions Subgraph
+  UserBalance,
+  NetUserBalance,
+  // PnL Subgraph
+  UserPosition,
+  Condition,
+  // Activity Subgraph
+  Split,
+  Merge,
+  Redemption,
+  // OI Subgraph
+  MarketOpenInterest,
+  GlobalOpenInterest,
+  // Orderbook Subgraph
+  OrderFilledEvent,
+  MarketData,
+} from './clients/subgraph.js';
 
-// ============================================================================
-// Types
-// ============================================================================
+// Services
+export { WalletService } from './services/wallet-service.js';
+export type {
+  WalletProfile,
+  WalletActivityOptions,
+  WalletActivitySummary,
+  SellActivityResult,
+  // Time-based leaderboard types
+  TimePeriod,
+  LeaderboardSortBy,
+  PeriodLeaderboardEntry,
+  PeriodLeaderboardResult,
+  WalletPeriodStats,
+  // PnL calculation types
+  ParsedTrade,
+  TokenPosition,
+  UserPeriodStats,
+} from './services/wallet-service.js';
 
-// Side and OrderType are imported from core/types.ts
+export { MarketService, getIntervalMs as getIntervalMsService } from './services/market-service.js';
+export type { ResolvedMarketTokens } from './services/market-service.js';
+
+// Real-time (V2 - using official @polymarket/real-time-data-client)
+export { RealtimeServiceV2 } from './services/realtime-service-v2.js';
+export type {
+  RealtimeServiceConfig,
+  OrderbookSnapshot,
+  LastTradeInfo,
+  PriceChange,
+  TickSizeChange,
+  MarketEvent,
+  UserOrder,
+  UserTrade,
+  ActivityTrade,
+  CryptoPrice,
+  EquityPrice,
+  Comment,
+  Reaction,
+  RFQRequest,
+  RFQQuote,
+  Subscription,
+  MarketSubscription,
+  MarketDataHandlers,
+  UserDataHandlers,
+  ActivityHandlers,
+  CryptoPriceHandlers,
+  EquityPriceHandlers,
+} from './services/realtime-service-v2.js';
+
+// RealtimeService (legacy) has been removed - use RealtimeServiceV2 instead
+
+// ArbitrageService (Real-time arbitrage detection, execution, rebalancing, and settlement)
+export { ArbitrageService } from './services/arbitrage-service.js';
+export type {
+  ArbitrageMarketConfig,
+  ArbitrageServiceConfig,
+  ArbitrageOpportunity as ArbitrageServiceOpportunity,
+  ArbitrageExecutionResult,
+  ArbitrageServiceEvents,
+  OrderbookState,
+  BalanceState,
+  // Rebalancer types
+  RebalanceAction,
+  RebalanceResult,
+  // Settle types
+  SettleResult,
+  // Clear position types (smart settle)
+  ClearPositionResult,
+  ClearAction,
+  // Scanning types
+  ScanCriteria,
+  ScanResult,
+} from './services/arbitrage-service.js';
+
+// SmartMoneyService - Smart Money detection and Copy Trading
+export {
+  SmartMoneyService,
+  categorizeMarket,
+  CATEGORY_KEYWORDS,
+} from './services/smart-money-service.js';
+export type {
+  SmartMoneyWallet,
+  SmartMoneyTrade,
+  AutoCopyTradingOptions,
+  AutoCopyTradingStats,
+  AutoCopyTradingSubscription,
+  SmartMoneyServiceConfig,
+  // Leaderboard & Report types
+  LeaderboardOptions,
+  SmartMoneyLeaderboardEntry,
+  SmartMoneyLeaderboardResult,
+  PeriodRanking,
+  WalletReport,
+  WalletComparison,
+  // Report types (02-smart-money)
+  MarketCategory,
+  DailySummary,
+  CategoryStats,
+  TradeRecord,
+  PositionSummary,
+  ClosedMarketSummary,
+  DailyWalletReport,
+  DataRange,
+  PerformanceMetrics,
+  MarketStats,
+  TradingPatterns,
+  CurrentPositionsSummary,
+  WalletLifecycleReport,
+  PieSlice,
+  PieChartData,
+  BarItem,
+  BarChartData,
+  MonthlyPnLItem,
+  MonthlyPnLData,
+  ChartMetadata,
+  WalletChartData,
+  ReportProgressCallback,
+  LifecycleReportOptions,
+  TextReport,
+} from './services/smart-money-service.js';
+
+// DipArbService - Dip Arbitrage for 15m/5m UP/DOWN markets
+export { DipArbService } from './services/dip-arb-service.js';
+export type {
+  DipArbServiceConfig,
+  DipArbMarketConfig,
+  DipArbRoundState,
+  DipArbStats,
+  DipArbSignal,
+  DipArbLeg1Signal,
+  DipArbLeg2Signal,
+  DipArbExecutionResult,
+  DipArbRoundResult,
+  DipArbNewRoundEvent,
+  DipArbPriceUpdateEvent,
+  DipArbScanOptions,
+  DipArbFindAndStartOptions,
+  DipArbAutoRotateConfig,
+  DipArbSettleResult,
+  DipArbRotateEvent,
+  DipArbSide,
+  DipArbUnderlying,
+  DipArbPhase,
+  DipArbLegInfo,
+} from './services/dip-arb-types.js';
+
+// BinanceService - BTC/ETH/SOL K-line data from Binance
+export { BinanceService } from './services/binance-service.js';
+export type {
+  BinanceKLine,
+  BinanceSymbol,
+  BinanceInterval,
+  BinanceKLineOptions,
+} from './services/binance-service.js';
+
+// TradingService - Unified trading and market data
+export {
+  TradingService,
+  POLYGON_MAINNET,
+  POLYGON_AMOY,
+  // Polymarket order minimum requirements
+  MIN_ORDER_VALUE_USDC,
+  MIN_ORDER_SIZE_SHARES,
+} from './services/trading-service.js';
+export type {
+  TradingServiceConfig,
+  // Order types - Side and OrderType are re-exported from core/types.ts via trading-service.ts
+  // They are also exported via `export * from './core/types.js'` above
+  ApiCredentials,
+  LimitOrderParams,
+  MarketOrderParams,
+  // Results
+  Order,
+  OrderResult,
+  TradeInfo,
+  // Rewards
+  UserEarning,
+  MarketReward,
+} from './services/trading-service.js';
+
+// Market types from MarketService
+// Note: Side and Orderbook are now in core/types.ts (exported via `export * from './core/types.js'` above)
+export type {
+  Market,
+  MarketToken,
+  PricePoint,
+  PriceHistoryParams,
+  PriceHistoryIntervalString,
+} from './services/market-service.js';
+
+// TradingClient (legacy) has been removed - use TradingService instead
+// TradingService provides all trading functionality with proper type exports
+
+// CTF (Conditional Token Framework)
+// NOTE: USDC_CONTRACT is USDC.e (bridged), required for Polymarket CTF
+// NATIVE_USDC_CONTRACT is native USDC, NOT compatible with CTF
+export {
+  CTFClient,
+  CTF_CONTRACT,
+  USDC_CONTRACT,           // USDC.e (0x2791...) - Required for CTF
+  NATIVE_USDC_CONTRACT,    // Native USDC (0x3c49...) - NOT for CTF
+  NEG_RISK_CTF_EXCHANGE,
+  NEG_RISK_ADAPTER,
+  USDC_DECIMALS,
+  calculateConditionId,
+  parseUsdc,
+  formatUsdc,
+} from './clients/ctf-client.js';
+export type {
+  CTFConfig,
+  SplitResult,
+  MergeResult,
+  RedeemResult,
+  PositionBalance,
+  MarketResolution,
+  GasEstimate,
+  TransactionStatus,
+  TokenIds,
+} from './clients/ctf-client.js';
+export { RevertReason } from './clients/ctf-client.js';
+
+// Bridge (Cross-chain Deposits)
+export {
+  BridgeClient,
+  SUPPORTED_CHAINS,
+  BRIDGE_TOKENS,
+  estimateBridgeOutput,
+  getExplorerUrl,
+  depositUsdc,
+  swapAndDeposit,
+  getSupportedDepositTokens,
+} from './clients/bridge-client.js';
+export type {
+  BridgeSupportedAsset,
+  DepositAddress,
+  CreateDepositResponse,
+  DepositStatus,
+  BridgeConfig,
+  DepositResult,
+  DepositOptions,
+  SwapAndDepositOptions,
+  SwapAndDepositResult,
+} from './clients/bridge-client.js';
+
+// Swap Service (DEX swaps on Polygon)
+export {
+  SwapService,
+  QUICKSWAP_ROUTER,
+  POLYGON_TOKENS,
+  TOKEN_DECIMALS,
+} from './services/swap-service.js';
+export type {
+  SupportedToken,
+  SwapQuote,
+  SwapResult,
+  TokenBalance,
+  TransferResult,
+} from './services/swap-service.js';
+
+// Authorization (ERC20/ERC1155 Approvals)
+export { AuthorizationService } from './services/authorization-service.js';
+export type {
+  AllowanceInfo,
+  AllowancesResult,
+  ApprovalTxResult,
+  ApprovalsResult,
+  AuthorizationServiceConfig,
+} from './services/authorization-service.js';
+
+// OnchainService (Unified on-chain operations: CTF + Authorization + Swaps)
+export { OnchainService } from './services/onchain-service.js';
+export type {
+  OnchainServiceConfig,
+  ReadyStatus,
+  TokenBalances,
+} from './services/onchain-service.js';
+
+// Price Utilities
+export {
+  roundPrice,
+  roundSize,
+  validatePrice,
+  validateSize,
+  calculateBuyAmount,
+  calculateSellPayout,
+  calculateSharesForAmount,
+  calculateSpread,
+  calculateMidpoint,
+  formatPrice,
+  formatUSDC,
+  calculatePnL,
+  checkArbitrage,
+  getEffectivePrices,
+  ROUNDING_CONFIG,
+} from './utils/price-utils.js';
+export type { TickSize } from './utils/price-utils.js';
+
+// NOTE: MCP tools have been moved to @catalyst-team/poly-mcp package
+// See packages/poly-mcp/
+
+// ===== Main SDK Class =====
+
+import { RateLimiter } from './core/rate-limiter.js';
+import { DataApiClient } from './clients/data-api.js';
+import { GammaApiClient } from './clients/gamma-api.js';
+import { SubgraphClient } from './clients/subgraph.js';
+import { WalletService } from './services/wallet-service.js';
+import { MarketService } from './services/market-service.js';
+import { TradingService } from './services/trading-service.js';
+import { RealtimeServiceV2 } from './services/realtime-service-v2.js';
+import { SmartMoneyService } from './services/smart-money-service.js';
+import { BinanceService } from './services/binance-service.js';
+import { DipArbService } from './services/dip-arb-service.js';
+import type { UnifiedMarket, ProcessedOrderbook, ArbitrageOpportunity, KLineInterval, KLineCandle, DualKLineData, PolySDKOptions } from './core/types.js';
+import { createUnifiedCache, type UnifiedCache } from './core/unified-cache.js';
+
 // Re-export for backward compatibility
-export type { Side, OrderType } from '../core/types.js';
+export interface PolymarketSDKConfig extends PolySDKOptions {}
 
-export interface ApiCredentials {
-  key: string;
-  secret: string;
-  passphrase: string;
-}
+export class PolymarketSDK {
+  // Infrastructure
+  private rateLimiter: RateLimiter;
+  private cache: UnifiedCache;
 
-export interface TradingServiceConfig {
-  /** Private key for signing */
-  privateKey: string;
-  /** Chain ID (default: Polygon mainnet 137) */
-  chainId?: number;
-  /** Pre-generated API credentials (optional) */
-  credentials?: ApiCredentials;
-}
+  // API Clients
+  public readonly dataApi: DataApiClient;
+  public readonly gammaApi: GammaApiClient;
+  public readonly tradingService: TradingService;
+  public readonly subgraph: SubgraphClient;
 
-// Order types
-export interface LimitOrderParams {
-  tokenId: string;
-  side: Side;
-  price: number;
-  size: number;
-  orderType?: 'GTC' | 'GTD';
-  expiration?: number;
-}
+  // Services
+  public readonly wallets: WalletService;
+  public readonly markets: MarketService;
+  public readonly realtime: RealtimeServiceV2;
+  public readonly smartMoney: SmartMoneyService;
+  public readonly binance: BinanceService;
+  public readonly dipArb: DipArbService;
 
-export interface MarketOrderParams {
-  tokenId: string;
-  side: Side;
-  amount: number;
-  price?: number;
-  orderType?: 'FOK' | 'FAK';
-}
+  // Initialization state
+  private _initialized = false;
 
-export interface Order {
-  id: string;
-  status: string;
-  tokenId: string;
-  side: Side;
-  price: number;
-  originalSize: number;
-  filledSize: number;
-  remainingSize: number;
-  associateTrades: string[];
-  createdAt: number;
-}
+  constructor(config: PolymarketSDKConfig = {}) {
+    // Initialize infrastructure
+    this.rateLimiter = new RateLimiter();
 
-export interface OrderResult {
-  success: boolean;
-  orderId?: string;
-  orderIds?: string[];
-  errorMsg?: string;
-  transactionHashes?: string[];
-}
+    // Create unified cache (supports both legacy Cache and CacheAdapter)
+    this.cache = createUnifiedCache(config.cache);
 
-export interface TradeInfo {
-  id: string;
-  tokenId: string;
-  side: Side;
-  price: number;
-  size: number;
-  fee: number;
-  timestamp: number;
-}
+    // Initialize API clients
+    this.dataApi = new DataApiClient(this.rateLimiter, this.cache);
+    this.gammaApi = new GammaApiClient(this.rateLimiter, this.cache);
 
-// Rewards types
-export interface UserEarning {
-  date: string;
-  conditionId: string;
-  assetAddress: string;
-  makerAddress: string;
-  earnings: number;
-  assetRate: number;
-}
+    // TradingService requires a private key - use provided key or dummy key for read-only
+    const privateKey = config.privateKey || '0x' + '1'.repeat(64);
+    this.tradingService = new TradingService(this.rateLimiter, this.cache, {
+      privateKey,
+      chainId: config.chainId,
+      credentials: config.creds,
+    });
 
-export interface MarketReward {
-  conditionId: string;
-  question: string;
-  marketSlug: string;
-  eventSlug: string;
-  rewardsMaxSpread: number;
-  rewardsMinSize: number;
-  tokens: Array<{ tokenId: string; outcome: string; price: number }>;
-  rewardsConfig: Array<{
-    assetAddress: string;
-    startDate: string;
-    endDate: string;
-    ratePerDay: number;
-    totalRewards: number;
-  }>;
-}
+    this.subgraph = new SubgraphClient(this.rateLimiter, this.cache);
 
-// ============================================================================
-// TradingService Implementation
-// ============================================================================
-
-export class TradingService {
-  private clobClient: ClobClient | null = null;
-  private wallet: Wallet;
-  private chainId: Chain;
-  private credentials: ApiCredentials | null = null;
-  private initialized = false;
-  private tickSizeCache: Map<string, string> = new Map();
-  private negRiskCache: Map<string, boolean> = new Map();
-
-  constructor(
-    private rateLimiter: RateLimiter,
-    private cache: UnifiedCache,
-    private config: TradingServiceConfig
-  ) {
-    this.wallet = new Wallet(config.privateKey);
-    this.chainId = (config.chainId || POLYGON_MAINNET) as Chain;
-    this.credentials = config.credentials || null;
-  }
-
-  // ============================================================================
-  // Initialization
-  // ============================================================================
-
-  async initialize(): Promise<void> {
-    if (this.initialized) return;
-
-    // Create CLOB client with L1 auth (wallet)
-    this.clobClient = new ClobClient(CLOB_HOST, this.chainId, this.wallet);
-
-    // Get or create API credentials
-    // We use derive-first strategy (opposite of official createOrDeriveApiKey)
-    // because most users already have a key, avoiding unnecessary 400 error logs.
-    if (!this.credentials) {
-      const creds = await this.deriveOrCreateApiKey();
-      this.credentials = {
-        key: creds.key,
-        secret: creds.secret,
-        passphrase: creds.passphrase,
-      };
-    }
-
-    // Re-initialize with L2 auth (credentials)
-    this.clobClient = new ClobClient(
-      CLOB_HOST,
-      this.chainId,
-      this.wallet,
-      {
-        key: this.credentials.key,
-        secret: this.credentials.secret,
-        passphrase: this.credentials.passphrase,
-      }
+    // Initialize services
+    this.wallets = new WalletService(this.dataApi, this.subgraph, this.cache);
+    this.binance = new BinanceService(this.rateLimiter, this.cache);
+    this.markets = new MarketService(this.gammaApi, this.dataApi, this.rateLimiter, this.cache, undefined, this.binance);
+    this.realtime = new RealtimeServiceV2();
+    this.smartMoney = new SmartMoneyService(
+      this.wallets,
+      this.realtime,
+      this.tradingService,
+      {},  // default config
+      this.dataApi  // pass dataApi for report generation
     );
 
-    this.initialized = true;
+    // Initialize DipArbService
+    this.dipArb = new DipArbService(
+      this.realtime,
+      this.tradingService,
+      this.markets,
+      config.privateKey,
+      config.chainId
+    );
   }
+
+  // ===== Static Factory Methods =====
 
   /**
-   * Try to derive existing API key first, create new one if not exists.
-   * This is the reverse of official createOrDeriveApiKey() to avoid
-   * 400 "Could not create api key" error log for existing keys.
-   */
-  private async deriveOrCreateApiKey(): Promise<{ key: string; secret: string; passphrase: string }> {
-    // First try to derive existing key (most common case for existing users)
-    const derived = await this.clobClient!.deriveApiKey();
-    if (derived.key) {
-      return derived;
-    }
-
-    // Derive failed (key doesn't exist), create new key (first-time users)
-    const created = await this.clobClient!.createApiKey();
-    if (!created.key) {
-      throw new PolymarketError(
-        ErrorCode.AUTH_FAILED,
-        'Failed to create or derive API key. Wallet may not be registered on Polymarket.'
-      );
-    }
-    return created;
-  }
-
-  private async ensureInitialized(): Promise<ClobClient> {
-    if (!this.initialized || !this.clobClient) {
-      await this.initialize();
-    }
-    return this.clobClient!;
-  }
-
-  // ============================================================================
-  // Trading Helpers
-  // ============================================================================
-
-  /**
-   * Get tick size for a token
-   */
-  async getTickSize(tokenId: string): Promise<TickSize> {
-    if (this.tickSizeCache.has(tokenId)) {
-      return this.tickSizeCache.get(tokenId)! as TickSize;
-    }
-
-    const client = await this.ensureInitialized();
-    const tickSize = await client.getTickSize(tokenId);
-    this.tickSizeCache.set(tokenId, tickSize);
-    return tickSize;
-  }
-
-  /**
-   * Check if token is neg risk
-   */
-  async isNegRisk(tokenId: string): Promise<boolean> {
-    if (this.negRiskCache.has(tokenId)) {
-      return this.negRiskCache.get(tokenId)!;
-    }
-
-    const client = await this.ensureInitialized();
-    const negRisk = await client.getNegRisk(tokenId);
-    this.negRiskCache.set(tokenId, negRisk);
-    return negRisk;
-  }
-
-  // ============================================================================
-  // Order Creation
-  // ============================================================================
-
-  /**
-   * Create and post a limit order
+   * Create and initialize SDK in one call
    *
-   * Note: Polymarket enforces minimum order requirements:
-   * - Minimum size: 5 shares (MIN_ORDER_SIZE_SHARES)
-   * - Minimum value: $1 USDC (MIN_ORDER_VALUE_USDC)
-   *
-   * Orders below these limits will be rejected by the API.
+   * @example
+   * ```typescript
+   * const sdk = await PolymarketSDK.create({ privateKey: '...' });
+   * // Ready to trade and track smart money
+   * ```
    */
-  async createLimitOrder(params: LimitOrderParams): Promise<OrderResult> {
-    // Validate minimum order requirements before sending to API
-    if (params.size < MIN_ORDER_SIZE_SHARES) {
-      return {
-        success: false,
-        errorMsg: `Order size (${params.size}) is below Polymarket minimum (${MIN_ORDER_SIZE_SHARES} shares)`,
-      };
-    }
+  static async create(config: PolymarketSDKConfig = {}): Promise<PolymarketSDK> {
+    const sdk = new PolymarketSDK(config);
+    await sdk.start();
+    return sdk;
+  }
 
-    const orderValue = params.price * params.size;
-    if (orderValue < MIN_ORDER_VALUE_USDC) {
-      return {
-        success: false,
-        errorMsg: `Order value ($${orderValue.toFixed(2)}) is below Polymarket minimum ($${MIN_ORDER_VALUE_USDC})`,
-      };
-    }
+  // ===== Lifecycle Methods =====
 
-    const client = await this.ensureInitialized();
-
-    return this.rateLimiter.execute(ApiType.CLOB_API, async () => {
-      try {
-        const [tickSize, negRisk] = await Promise.all([
-          this.getTickSize(params.tokenId),
-          this.isNegRisk(params.tokenId),
-        ]);
-
-        const orderType = params.orderType === 'GTD' ? ClobOrderType.GTD : ClobOrderType.GTC;
-
-        const result = await client.createAndPostOrder(
-          {
-            tokenID: params.tokenId,
-            side: params.side === 'BUY' ? ClobSide.BUY : ClobSide.SELL,
-            price: params.price,
-            size: params.size,
-            expiration: params.expiration || 0,
-          },
-          { tickSize, negRisk },
-          orderType
-        );
-
-        const success = result.success === true ||
-          (result.success !== false &&
-            ((result.orderID !== undefined && result.orderID !== '') ||
-              (result.transactionsHashes !== undefined && result.transactionsHashes.length > 0)));
-
-        return {
-          success,
-          orderId: result.orderID,
-          orderIds: result.orderIDs,
-          errorMsg: result.errorMsg,
-          transactionHashes: result.transactionsHashes,
-        };
-      } catch (error) {
-        return {
-          success: false,
-          errorMsg: `Order failed: ${error instanceof Error ? error.message : String(error)}`,
-        };
-      }
-    });
+  /**
+   * Initialize the SDK (required for trading operations)
+   */
+  async initialize(): Promise<void> {
+    if (this._initialized) return;
+    await this.tradingService.initialize();
+    this._initialized = true;
   }
 
   /**
-   * Create and post a market order
-   *
-   * Note: Polymarket enforces minimum order requirements:
-   * - Minimum value: $1 USDC (MIN_ORDER_VALUE_USDC)
-   *
-   * Market orders below this limit will be rejected by the API.
+   * Check if SDK is initialized
    */
-  async createMarketOrder(params: MarketOrderParams): Promise<OrderResult> {
-    // Validate minimum order value before sending to API
-    if (params.amount < MIN_ORDER_VALUE_USDC) {
-      return {
-        success: false,
-        errorMsg: `Order amount ($${params.amount.toFixed(2)}) is below Polymarket minimum ($${MIN_ORDER_VALUE_USDC})`,
-      };
-    }
-
-    const client = await this.ensureInitialized();
-
-    return this.rateLimiter.execute(ApiType.CLOB_API, async () => {
-      try {
-        const [tickSize, negRisk] = await Promise.all([
-          this.getTickSize(params.tokenId),
-          this.isNegRisk(params.tokenId),
-        ]);
-
-        const orderType = params.orderType === 'FAK' ? ClobOrderType.FAK : ClobOrderType.FOK;
-
-        const result = await client.createAndPostMarketOrder(
-          {
-            tokenID: params.tokenId,
-            side: params.side === 'BUY' ? ClobSide.BUY : ClobSide.SELL,
-            amount: params.amount,
-            price: params.price,
-          },
-          { tickSize, negRisk },
-          orderType
-        );
-
-        const success = result.success === true ||
-          (result.success !== false &&
-            ((result.orderID !== undefined && result.orderID !== '') ||
-              (result.transactionsHashes !== undefined && result.transactionsHashes.length > 0)));
-
-        return {
-          success,
-          orderId: result.orderID,
-          orderIds: result.orderIDs,
-          errorMsg: result.errorMsg,
-          transactionHashes: result.transactionsHashes,
-        };
-      } catch (error) {
-        return {
-          success: false,
-          errorMsg: `Market order failed: ${error instanceof Error ? error.message : String(error)}`,
-        };
-      }
-    });
-  }
-
-  // ============================================================================
-  // Order Management
-  // ============================================================================
-
-  async cancelOrder(orderId: string): Promise<OrderResult> {
-    const client = await this.ensureInitialized();
-
-    return this.rateLimiter.execute(ApiType.CLOB_API, async () => {
-      try {
-        const result = await client.cancelOrder({ orderID: orderId });
-        return { success: result.canceled ?? false, orderId };
-      } catch (error) {
-        throw new PolymarketError(
-          ErrorCode.ORDER_FAILED,
-          `Cancel failed: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    });
-  }
-
-  async cancelOrders(orderIds: string[]): Promise<OrderResult> {
-    const client = await this.ensureInitialized();
-
-    return this.rateLimiter.execute(ApiType.CLOB_API, async () => {
-      try {
-        const result = await client.cancelOrders(orderIds);
-        return { success: result.canceled ?? false, orderIds };
-      } catch (error) {
-        throw new PolymarketError(
-          ErrorCode.ORDER_FAILED,
-          `Cancel orders failed: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    });
-  }
-
-  async cancelAllOrders(): Promise<OrderResult> {
-    const client = await this.ensureInitialized();
-
-    return this.rateLimiter.execute(ApiType.CLOB_API, async () => {
-      try {
-        const result = await client.cancelAll();
-        return { success: result.canceled ?? false };
-      } catch (error) {
-        throw new PolymarketError(
-          ErrorCode.ORDER_FAILED,
-          `Cancel all failed: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    });
-  }
-
-  async getOpenOrders(marketId?: string): Promise<Order[]> {
-    const client = await this.ensureInitialized();
-
-    return this.rateLimiter.execute(ApiType.CLOB_API, async () => {
-      const orders = await client.getOpenOrders(marketId ? { market: marketId } : undefined);
-
-      return orders.map((o: OpenOrder) => {
-        const originalSize = Number(o.original_size) || 0;
-        const filledSize = Number(o.size_matched) || 0;
-        return {
-          id: o.id,
-          status: o.status,
-          tokenId: o.asset_id,
-          side: o.side.toUpperCase() as Side,
-          price: Number(o.price) || 0,
-          originalSize,
-          filledSize,
-          remainingSize: originalSize - filledSize,
-          associateTrades: o.associate_trades || [],
-          createdAt: o.created_at,
-        };
-      });
-    });
-  }
-
-  async getTrades(marketId?: string): Promise<TradeInfo[]> {
-    const client = await this.ensureInitialized();
-
-    return this.rateLimiter.execute(ApiType.CLOB_API, async () => {
-      const trades = await client.getTrades(marketId ? { market: marketId } : undefined);
-
-      return trades.map((t: ClobTrade) => ({
-        id: t.id,
-        tokenId: t.asset_id,
-        side: t.side as Side,
-        price: Number(t.price) || 0,
-        size: Number(t.size) || 0,
-        fee: Number(t.fee_rate_bps) || 0,
-        timestamp: Number(t.match_time) || Date.now(),
-      }));
-    });
-  }
-
-  // ============================================================================
-  // Rewards
-  // ============================================================================
-
-  async isOrderScoring(orderId: string): Promise<boolean> {
-    const client = await this.ensureInitialized();
-    return this.rateLimiter.execute(ApiType.CLOB_API, async () => {
-      const result = await client.isOrderScoring({ order_id: orderId });
-      return result.scoring;
-    });
-  }
-
-  async areOrdersScoring(orderIds: string[]): Promise<Record<string, boolean>> {
-    const client = await this.ensureInitialized();
-    return this.rateLimiter.execute(ApiType.CLOB_API, async () => {
-      return await client.areOrdersScoring({ orderIds });
-    });
-  }
-
-  async getEarningsForDay(date: string): Promise<UserEarning[]> {
-    const client = await this.ensureInitialized();
-    return this.rateLimiter.execute(ApiType.CLOB_API, async () => {
-      const earnings = await client.getEarningsForUserForDay(date);
-      return earnings.map(e => ({
-        date: e.date,
-        conditionId: e.condition_id,
-        assetAddress: e.asset_address,
-        makerAddress: e.maker_address,
-        earnings: e.earnings,
-        assetRate: e.asset_rate,
-      }));
-    });
-  }
-
-  async getCurrentRewards(): Promise<MarketReward[]> {
-    const client = await this.ensureInitialized();
-    return this.rateLimiter.execute(ApiType.CLOB_API, async () => {
-      const rewards = await client.getCurrentRewards();
-      return rewards.map(r => ({
-        conditionId: r.condition_id,
-        question: r.question,
-        marketSlug: r.market_slug,
-        eventSlug: r.event_slug,
-        rewardsMaxSpread: r.rewards_max_spread,
-        rewardsMinSize: r.rewards_min_size,
-        tokens: r.tokens.map(t => ({
-          tokenId: t.token_id,
-          outcome: t.outcome,
-          price: t.price,
-        })),
-        rewardsConfig: r.rewards_config.map(c => ({
-          assetAddress: c.asset_address,
-          startDate: c.start_date,
-          endDate: c.end_date,
-          ratePerDay: c.rate_per_day,
-          totalRewards: c.total_rewards,
-        })),
-      }));
-    });
-  }
-
-  // ============================================================================
-  // Balance & Allowance
-  // ============================================================================
-
-  async getBalanceAllowance(
-    assetType: 'COLLATERAL' | 'CONDITIONAL',
-    tokenId?: string
-  ): Promise<{ balance: string; allowance: string }> {
-    const client = await this.ensureInitialized();
-    return this.rateLimiter.execute(ApiType.CLOB_API, async () => {
-      const result = await client.getBalanceAllowance({
-        asset_type: assetType as any,
-        token_id: tokenId,
-      });
-      return { balance: result.balance, allowance: result.allowance };
-    });
-  }
-
-  async updateBalanceAllowance(
-    assetType: 'COLLATERAL' | 'CONDITIONAL',
-    tokenId?: string
-  ): Promise<void> {
-    const client = await this.ensureInitialized();
-    return this.rateLimiter.execute(ApiType.CLOB_API, async () => {
-      await client.updateBalanceAllowance({
-        asset_type: assetType as any,
-        token_id: tokenId,
-      });
-    });
-  }
-
-  // ============================================================================
-  // Account Info
-  // ============================================================================
-
-  getAddress(): string {
-    return this.wallet.address;
-  }
-
-  getWallet(): Wallet {
-    return this.wallet;
-  }
-
-  getCredentials(): ApiCredentials | null {
-    return this.credentials;
-  }
-
   isInitialized(): boolean {
-    return this.initialized;
+    return this._initialized;
   }
 
-  getClobClient(): ClobClient | null {
-    return this.clobClient;
+  /**
+   * Start SDK - initialize trading + connect WebSocket
+   *
+   * One method to do everything:
+   * - Initialize trading service (derive API credentials)
+   * - Connect WebSocket
+   * - Wait for connection
+   *
+   * @example
+   * ```typescript
+   * const sdk = new PolymarketSDK({ privateKey: '...' });
+   * await sdk.start();
+   * // Ready to use
+   * ```
+   */
+  async start(options: { timeout?: number } = {}): Promise<void> {
+    await this.initialize();
+    this.connect();
+    await this.waitForConnection(options.timeout ?? 10000);
   }
 
+  /**
+   * Connect to realtime WebSocket (required for smart money tracking)
+   */
+  connect(): void {
+    this.realtime.connect();
+  }
+
+  /**
+   * Wait for WebSocket connection
+   */
+  async waitForConnection(timeoutMs: number = 10000): Promise<void> {
+    // Already connected
+    if (this.realtime.isConnected?.()) {
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Connection timeout')), timeoutMs);
+      this.realtime.once('connected', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Stop SDK - disconnect all services and clean up
+   */
+  stop(): void {
+    this.dipArb.stop();
+    this.smartMoney.disconnect();
+    this.realtime.disconnect();
+  }
+
+  /**
+   * Disconnect all services and clean up
+   * @deprecated Use stop() instead
+   */
+  disconnect(): void {
+    this.stop();
+  }
+
+  // ===== Unified Market Access =====
+
+  /**
+   * Get market by slug or condition ID
+   * Delegates to MarketService which handles merging Gamma and CLOB data
+   */
+  async getMarket(identifier: string): Promise<UnifiedMarket> {
+    return this.markets.getMarket(identifier);
+  }
+
+  // ===== Orderbook Analysis =====
+
+  /**
+   * Get processed orderbook with analytics
+   */
+  async getOrderbook(conditionId: string): Promise<ProcessedOrderbook> {
+    return this.markets.getProcessedOrderbook(conditionId);
+  }
+
+  /**
+   * Detect arbitrage opportunity
+   *
+   * 使用有效价格计算套利机会（正确考虑镜像订单）
+   * 详细文档见: docs/01-polymarket-orderbook-arbitrage.md
+   */
+  async detectArbitrage(
+    conditionId: string,
+    threshold = 0.005
+  ): Promise<ArbitrageOpportunity | null> {
+    const orderbook = await this.getOrderbook(conditionId);
+    const { effectivePrices, longArbProfit, shortArbProfit } = orderbook.summary;
+
+    if (longArbProfit > threshold) {
+      return {
+        type: 'long',
+        profit: longArbProfit,
+        action: `Buy YES @ ${effectivePrices.effectiveBuyYes.toFixed(4)} + Buy NO @ ${effectivePrices.effectiveBuyNo.toFixed(4)}, merge for 1 USDC`,
+        expectedProfit: longArbProfit,
+      };
+    }
+
+    if (shortArbProfit > threshold) {
+      return {
+        type: 'short',
+        profit: shortArbProfit,
+        action: `Split 1 USDC, Sell YES @ ${effectivePrices.effectiveSellYes.toFixed(4)} + Sell NO @ ${effectivePrices.effectiveSellNo.toFixed(4)}`,
+        expectedProfit: shortArbProfit,
+      };
+    }
+
+    return null;
+  }
+
+  // ===== Cache Management =====
+
+  /**
+   * Clear all cached data
+   */
+  clearCache(): void {
+    this.cache.clear();
+  }
+
+  /**
+   * Invalidate cache for a specific market
+   */
+  invalidateMarketCache(conditionId: string): void {
+    this.cache.invalidate(conditionId);
+  }
 }
+
